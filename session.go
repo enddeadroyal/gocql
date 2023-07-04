@@ -614,8 +614,9 @@ func (s *Session) routingKeyInfo(ctx context.Context, stmt string) (*routingKeyI
 		return nil, inflight.err
 	}
 
+	// v5+
 	// get the query info for the statement
-	info, inflight.err = conn.prepareStatement(ctx, stmt, nil)
+	info, inflight.err = conn.prepareStatement(ctx, conn.currentKeyspace, stmt, nil)
 	if inflight.err != nil {
 		// don't cache this error
 		s.routingKeyInfoCache.Remove(stmt)
@@ -909,6 +910,9 @@ type Query struct {
 	// used by control conn queries to prevent triggering a write to systems
 	// tables in AWS MCS see
 	skipPrepare bool
+
+	// v5+
+	keyspace string
 }
 
 func (q *Query) defaultsFromSession() {
@@ -927,6 +931,10 @@ func (q *Query) defaultsFromSession() {
 	q.metrics = &queryMetrics{m: make(map[string]*hostMetrics)}
 
 	q.spec = &NonSpeculativeExecution{}
+
+	// v5+
+	q.keyspace = q.session.cfg.Keyspace
+
 	s.mu.RUnlock()
 }
 
@@ -1066,6 +1074,16 @@ func (q *Query) WithContext(ctx context.Context) *Query {
 	return &q2
 }
 
+// v5+
+// Keyspace sets the keyspace for this query.
+func (q *Query) WithKeyspace(keyspace string) *Query {
+	if keyspace != "" {
+		q.keyspace = keyspace
+	}
+
+	return q
+}
+
 // Deprecate: does nothing, cancel the context passed to WithContext
 func (q *Query) Cancel() {
 	// TODO: delete
@@ -1104,12 +1122,9 @@ func (q *Query) Keyspace() string {
 	if q.getKeyspace != nil {
 		return q.getKeyspace()
 	}
-	if q.session == nil {
-		return ""
-	}
-	// TODO(chbannis): this should be parsed from the query or we should let
-	// this be set by users.
-	return q.session.cfg.Keyspace
+
+	// v5+
+	return q.keyspace
 }
 
 // GetRoutingKey gets the routing key to use for routing this query. If
@@ -1771,6 +1786,16 @@ func (b *Batch) GetConsistency() Consistency {
 // operation.
 func (b *Batch) SetConsistency(c Consistency) {
 	b.Cons = c
+}
+
+// v5+
+// Keyspace sets the keyspace for this batch.
+func (b *Batch) WithKeyspace(keyspace string) *Batch {
+	if keyspace != "" {
+		b.keyspace = keyspace
+	}
+
+	return b
 }
 
 func (b *Batch) Context() context.Context {

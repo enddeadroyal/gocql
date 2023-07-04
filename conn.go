@@ -1212,7 +1212,8 @@ type inflightPrepare struct {
 	preparedStatment *preparedStatment
 }
 
-func (c *Conn) prepareStatement(ctx context.Context, stmt string, tracer Tracer) (*preparedStatment, error) {
+// v5+
+func (c *Conn) prepareStatement(ctx context.Context, keyspace string, stmt string, tracer Tracer) (*preparedStatment, error) {
 	stmtCacheKey := c.session.stmtsLRU.keyFor(c.host.HostID(), c.currentKeyspace, stmt)
 	flight, ok := c.session.stmtsLRU.execIfMissing(stmtCacheKey, func(lru *lru.Cache) *inflightPrepare {
 		flight := &inflightPrepare{
@@ -1230,7 +1231,8 @@ func (c *Conn) prepareStatement(ctx context.Context, stmt string, tracer Tracer)
 				statement: stmt,
 			}
 			if c.version > protoVersion4 {
-				prep.keyspace = c.currentKeyspace
+				// v5+
+				prep.keyspace = keyspace
 			}
 
 			// we won the race to do the load, if our context is canceled we shouldnt
@@ -1324,7 +1326,8 @@ func (c *Conn) executeQuery(ctx context.Context, qry *Query) *Iter {
 		params.pageSize = qry.pageSize
 	}
 	if c.version > protoVersion4 {
-		params.keyspace = c.currentKeyspace
+		// v5+
+		params.keyspace = qry.Keyspace()
 	}
 
 	var (
@@ -1335,7 +1338,8 @@ func (c *Conn) executeQuery(ctx context.Context, qry *Query) *Iter {
 	if !qry.skipPrepare && qry.shouldPrepare() {
 		// Prepare all DML queries. Other queries can not be prepared.
 		var err error
-		info, err = c.prepareStatement(ctx, qry.stmt, qry.trace)
+		// v5+
+		info, err = c.prepareStatement(ctx, qry.Keyspace(), qry.stmt, qry.trace)
 		if err != nil {
 			return &Iter{err: err}
 		}
@@ -1448,7 +1452,8 @@ func (c *Conn) executeQuery(ctx context.Context, qry *Query) *Iter {
 		// is not consistent with regards to its schema.
 		return iter
 	case *RequestErrUnprepared:
-		stmtCacheKey := c.session.stmtsLRU.keyFor(c.host.HostID(), c.currentKeyspace, qry.stmt)
+		// v5+
+		stmtCacheKey := c.session.stmtsLRU.keyFor(c.host.HostID(), qry.Keyspace(), qry.stmt)
 		c.session.stmtsLRU.evictPreparedID(stmtCacheKey, x.StatementId)
 		return c.executeQuery(ctx, qry)
 	case error:
@@ -1485,6 +1490,8 @@ func (c *Conn) AvailableStreams() int {
 func (c *Conn) UseKeyspace(keyspace string) error {
 	q := &writeQueryFrame{statement: `USE "` + keyspace + `"`}
 	q.params.consistency = c.session.cons
+	// v5+
+	q.params.keyspace = keyspace
 
 	framer, err := c.exec(c.ctx, q, nil)
 	if err != nil {
@@ -1523,6 +1530,8 @@ func (c *Conn) executeBatch(ctx context.Context, batch *Batch) *Iter {
 		defaultTimestamp:      batch.defaultTimestamp,
 		defaultTimestampValue: batch.defaultTimestampValue,
 		customPayload:         batch.CustomPayload,
+		// v5+
+		keyspace: batch.Keyspace(),
 	}
 
 	stmts := make(map[string]string, len(batch.Entries))
@@ -1532,7 +1541,8 @@ func (c *Conn) executeBatch(ctx context.Context, batch *Batch) *Iter {
 		b := &req.statements[i]
 
 		if len(entry.Args) > 0 || entry.binding != nil {
-			info, err := c.prepareStatement(batch.Context(), entry.Stmt, batch.trace)
+			// v5+
+			info, err := c.prepareStatement(batch.Context(), batch.Keyspace(), entry.Stmt, batch.trace)
 			if err != nil {
 				return &Iter{err: err}
 			}

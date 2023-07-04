@@ -1532,7 +1532,8 @@ func (f *framer) writeQueryParams(opts *queryParams) {
 		f.writeLong(ts)
 	}
 
-	if opts.keyspace != "" {
+	// v5+
+	if (flags & flagWithKeyspace) != 0 {
 		f.writeString(opts.keyspace)
 	}
 }
@@ -1636,6 +1637,9 @@ type writeBatchFrame struct {
 
 	//v4+
 	customPayload map[string][]byte
+
+	// v5+
+	keyspace string
 }
 
 func (w *writeBatchFrame) buildFrame(framer *framer, streamID int) error {
@@ -1695,6 +1699,11 @@ func (f *framer) writeBatchFrame(streamID int, w *writeBatchFrame, customPayload
 			flags |= flagDefaultTimestamp
 		}
 
+		// v5+
+		if f.proto > protoVersion4 && w.keyspace != "" {
+			flags |= flagWithKeyspace
+		}
+
 		if f.proto > protoVersion4 {
 			f.writeUint(uint32(flags))
 		} else {
@@ -1713,6 +1722,11 @@ func (f *framer) writeBatchFrame(streamID int, w *writeBatchFrame, customPayload
 				ts = time.Now().UnixNano() / 1000
 			}
 			f.writeLong(ts)
+		}
+
+		// v5+
+		if (flags & flagWithKeyspace) != 0 {
+			f.writeString(w.keyspace)
 		}
 	}
 

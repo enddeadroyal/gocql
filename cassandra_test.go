@@ -1458,7 +1458,7 @@ func TestQueryInfo(t *testing.T) {
 	defer session.Close()
 
 	conn := getRandomConn(t, session)
-	info, err := conn.prepareStatement(context.Background(), "SELECT release_version, host_id FROM system.local WHERE key = ?", nil)
+	info, err := conn.prepareStatement(context.Background(), conn.currentKeyspace, "SELECT release_version, host_id FROM system.local WHERE key = ?", nil)
 
 	if err != nil {
 		t.Fatalf("Failed to execute query for preparing statement: %v", err)
